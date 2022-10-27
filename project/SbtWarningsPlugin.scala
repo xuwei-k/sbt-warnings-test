@@ -109,10 +109,10 @@ object SbtWarningsPlugin extends AutoPlugin {
   private def dir = "warnings"
 
   override def buildSettings: Seq[Def.Setting[?]] = Def.settings(
-    warningsDiffFile := {
+    warningsCurrentFile := {
       (LocalRootProject / target).value / dir / "warnings.json"
     },
-    warningsCurrentFile := {
+    warningsDiffFile := {
       (LocalRootProject / target).value / dir / "warnings-diff.json"
     },
     warningsPreviousFile := {
