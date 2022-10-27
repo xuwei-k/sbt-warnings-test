@@ -1,3 +1,3 @@
 class A1 {
-  def x1: List[Int] = ???
+  def x1: Stream[Int] = ???
 }
