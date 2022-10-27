@@ -36,7 +36,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
           const fs = require('fs');
-          const diff = fs.readFileSync("target/warnings/warnings-previous.json").toString();
+          const diff = fs.readFileSync("target/warnings/warnings-diff.json").toString();
           const body = "warnings diff\n\n```json\n" + diff + "\n```";
           github.rest.issues.createComment({
             issue_number: context.issue.number,
