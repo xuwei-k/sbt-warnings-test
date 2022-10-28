@@ -21,7 +21,7 @@ object SbtWarningsPlugin extends AutoPlugin {
     val warnings = taskKey[Warnings]("")
     val warningsDiff = taskKey[Option[WarningDiff]]("")
     val warningsAll = taskKey[Warnings]("")
-    val warningsPrevious = taskKey[Warnings]("")
+    val warningsPrevious = taskKey[Option[Warnings]]("")
   }
 
   case class Pos(
@@ -122,14 +122,14 @@ object SbtWarningsPlugin extends AutoPlugin {
       val f = warningsPreviousFile.value
       val s = streams.value
       if (f.isFile) {
-        loadWarningsFromJsonFile(f)
+        Some(loadWarningsFromJsonFile(f))
       } else {
         s.log.warn(s"$f does not exists")
-        Nil
+        None
       }
     },
     warningsDiff := Def.taskDyn {
-      warningsPrevious.?.value match {
+      warningsPrevious.?.value.flatten match {
         case Some(previous) =>
           def f(x: Warnings): Map[String, Warnings] = {
             x.groupBy(_.position.path).map { case (k, v) => k -> v.sortBy(_.position.line) }

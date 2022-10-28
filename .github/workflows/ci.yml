@@ -9,6 +9,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ startsWith(github.ref, 'refs/pull/') || github.run_number }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,14 +36,17 @@ jobs:
       with:
         name: warnings.json
         path: target/warnings/warnings.json
-    - if: github.event_name == 'pull_request'
+    - id: download_previous_warnings
+      if: github.event_name == 'pull_request'
       uses: dawidd6/action-download-artifact@v2
       with:
-        path: target/warnings/warnings-previous.json
-    - if: github.event_name == 'pull_request'
+        path: target/warnings/tmp
+    - if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
+      run: mv target/warnings/tmp/warnings.json/warnings.json target/warnings/warnings-previous.json
+    - if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       run: sbt warningsDiff
     - uses: actions/github-script@v6
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
