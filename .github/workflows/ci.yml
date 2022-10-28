@@ -37,16 +37,16 @@ jobs:
         name: warnings.json
         path: target/warnings/warnings.json
     - id: download_previous_warnings
-      if: github.event_name == 'pull_request'
+      if: (github.event_name == 'pull_request') && (github.base_ref == 'main')
       uses: dawidd6/action-download-artifact@v2
       with:
         path: target/warnings/tmp
-    - if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
+    - if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       run: mv target/warnings/tmp/warnings.json/warnings.json target/warnings/warnings-previous.json
-    - if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
+    - if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       run: sbt warningsDiff
     - uses: actions/github-script@v6
-      if: github.event_name == 'pull_request' && (steps.download_previous_warnings.outputs.found_artifact == 'true')
+      if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
