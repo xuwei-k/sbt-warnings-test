@@ -51,8 +51,8 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
           const fs = require('fs');
-          const diff = fs.readFileSync("target/warnings/warnings-diff.json").toString();
-          const body = "warnings diff\n\n```json\n" + diff + "\n```";
+          const diff = fs.readFileSync("target/warnings/warnings.diff").toString();
+          const body = diff.length == 0 ? "No warnings diff" : "warnings diff\n\n```diff\n" + diff + "\n```";
           github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,
