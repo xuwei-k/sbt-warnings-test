@@ -1,17 +1,17 @@
 package sbtwarnings
 
-import sbt.internal.inc.Analysis
-import xsbti.Position
-import xsbti.Severity
 import sbt._
 import sbt.Keys._
+import sbt.internal.inc.Analysis
 import sbt.plugins.JvmPlugin
-import sjsonnew.Builder
-import sjsonnew.JsonFormat
 import sjsonnew.BasicJsonProtocol
 import sjsonnew.BasicJsonProtocol._
+import sjsonnew.Builder
+import sjsonnew.JsonFormat
 import sjsonnew.Unbuilder
 import sjsonnew.support.scalajson.unsafe.PrettyPrinter
+import xsbti.Position
+import xsbti.Severity
 
 object SbtWarningsPlugin extends AutoPlugin {
   object autoImport {
@@ -19,10 +19,12 @@ object SbtWarningsPlugin extends AutoPlugin {
     val warningsCurrentFile = settingKey[File]("")
     val warningsPreviousFile = settingKey[File]("")
     val warnings = taskKey[Warnings]("")
-    val warningsDiff = taskKey[Option[WarningDiff]]("")
+    val warningsDiff = taskKey[WarningDiff]("")
     val warningsAll = taskKey[Warnings]("")
     val warningsPrevious = taskKey[Option[Warnings]]("")
   }
+
+  import autoImport._
 
   case class Pos(
     line: Int,
@@ -56,26 +58,13 @@ object SbtWarningsPlugin extends AutoPlugin {
     }
   }
 
-  case class WarningDiff(added: Seq[Warning], removed: Seq[Warning]) {
-    override def toString = this.toJsonString
-  }
-
-  object WarningDiff {
-    implicit val instance: JsonFormat[WarningDiff] =
-      caseClass2(WarningDiff.apply, WarningDiff.unapply)(
-        "added",
-        "removed"
-      )
-  }
-
+  type WarningDiff = List[String]
   type Warnings = Seq[Warning]
   def loadWarningsFromJsonFile(file: File): Warnings = {
     val unbuilder = new Unbuilder(sjsonnew.support.scalajson.unsafe.Converter.facade)
     val json = sjsonnew.support.scalajson.unsafe.Parser.parseFromFile(file).get
     implicitly[JsonFormat[Warnings]].read(Option(json), unbuilder)
   }
-
-  import autoImport._
 
   private implicit class JsonClassOps[A](private val self: A) extends AnyVal {
     def toJsonString(implicit format: JsonFormat[A]): String = {
@@ -113,7 +102,7 @@ object SbtWarningsPlugin extends AutoPlugin {
       (LocalRootProject / target).value / dir / "warnings.json"
     },
     warningsDiffFile := {
-      (LocalRootProject / target).value / dir / "warnings-diff.json"
+      (LocalRootProject / target).value / dir / "warnings.diff"
     },
     warningsPreviousFile := {
       (LocalRootProject / target).value / dir / "warnings-previous.json"
@@ -131,79 +120,41 @@ object SbtWarningsPlugin extends AutoPlugin {
     warningsDiff := Def.taskDyn {
       warningsPrevious.?.value.flatten match {
         case Some(previous) =>
-          def f(x: Warnings): Map[String, Warnings] = {
-            x.groupBy(_.position.path).map { case (k, v) => k -> v.sortBy(_.position.line) }
-          }
-
-          Def.task[Option[WarningDiff]] {
+          Def.task[WarningDiff] {
             val current = warningsAll.value
-            val previous1 = f(previous)
-            val current1 = f(current)
-            val added = List.newBuilder[Warning]
-            val removed = List.newBuilder[Warning]
-
-            // TODO more better algorithm
-
-            current1.foreach {
-              case (path, currentValues) =>
-                previous1.get(path) match {
-                  case Some(previousValues) =>
-                    currentValues.lengthCompare(previousValues.size) match {
-                      case 0 =>
-                        if (
-                          (currentValues, previousValues).zipped.forall {
-                            _.message == _.message
-                          }
-                        ) {
-                          // same
-                        } else {
-                          added ++= currentValues
-                        }
-                      case n if n > 0 =>
-                        added ++= currentValues
-                      case n if n < 0 =>
-                      // maybe removed
-                    }
-                  case None =>
-                    // all new warnings. if no rename file
-                    added ++= currentValues
-                }
+            val order: Ordering[Warning] = Ordering.by(x => (x.position.path, x.position.line, x.message))
+            def format(warnings: Warnings): Seq[String] = {
+              warnings.sorted(order).flatMap(a => List(a.position.path, a.position.content, a.message))
             }
 
-            previous1.foreach {
-              case (path, previousValues) =>
-                current1.get(path) match {
-                  case Some(currentValues) =>
-                    currentValues.lengthCompare(previousValues.size) match {
-                      case 0 =>
-                      case n if n > 0 =>
-                      // maybe added
-                      case n if n < 0 =>
-                        removed ++= previousValues
-                    }
-                  case None =>
-                    removed ++= previousValues
-                }
+            val result = IO.withTemporaryDirectory { dir =>
+              val c = dir / "current.txt"
+              val p = dir / "previous.txt"
+              IO.writeLines(c, format(current))
+              IO.writeLines(p, format(previous))
+              sys.process
+                .Process(
+                  command = Seq("diff", p.getAbsolutePath, c.getAbsolutePath),
+                  cwd = Some(dir)
+                )
+                .lineStream_!
+                .toList
             }
-            val result = WarningDiff(
-              added = added.result().distinct,
-              removed = removed.result().distinct
-            )
 
             warningsDiffFile.?.value match {
               case Some(diffFile) =>
                 streams.value.log.info(s"write to ${diffFile}")
-                IO.write(diffFile, result.toJsonString)
+                IO.writeLines(diffFile, result)
               case _ =>
                 streams.value.log.warn(s"${warningsDiffFile.key.label} undefined")
             }
-            Some(result)
+            result
           }
         case None =>
           val s = streams.value
-          Def.task[Option[WarningDiff]] {
+          Def.task[WarningDiff] {
             s.log.warn(s"empty ${warningsPrevious.key.label}")
-            None
+            Nil
           }
       }
     }.value,
