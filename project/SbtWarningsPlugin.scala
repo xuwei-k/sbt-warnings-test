@@ -11,6 +11,7 @@ import sjsonnew.JsonFormat
 import sjsonnew.Unbuilder
 import sjsonnew.support.scalajson.unsafe.PrettyPrinter
 import xsbti.Position
+import xsbti.Problem
 import xsbti.Severity
 
 object SbtWarningsPlugin extends AutoPlugin {
@@ -27,16 +28,40 @@ object SbtWarningsPlugin extends AutoPlugin {
   import autoImport._
 
   case class Pos(
-    line: Int,
-    content: String,
-    path: String
+    line: Option[Int],
+    lineContent: String,
+    offset: Option[Int],
+    pointer: Option[Int],
+    pointerSpace: Option[String],
+    sourcePath: Option[String],
+    startOffset: Option[Int],
+    endOffset: Option[Int],
+    startLine: Option[Int],
+    startColumn: Option[Int],
+    endLine: Option[Int],
+    endColumn: Option[Int]
   )
 
+  private[this] def j2s[A](j: java.util.Optional[A]): Option[A] =
+    if (j.isPresent) Option(j.get) else None
+
+  private[this] def j2sInt(j: java.util.Optional[Integer]): Option[Int] =
+    if (j.isPresent) Option(j.get) else None
+
   object Pos {
-    def fromXsbt(p: Position): Pos = Pos(
-      line = p.line().get(),
-      content = p.lineContent(),
-      path = p.sourcePath().get()
+    def fromSbt(p: Position): Pos = Pos(
+      line = j2sInt(p.line()),
+      lineContent = p.lineContent(),
+      offset = j2sInt(p.offset()),
+      pointer = j2sInt(p.pointer()),
+      pointerSpace = j2s(p.pointerSpace()),
+      sourcePath = j2s(p.sourcePath()),
+      startOffset = j2sInt(p.startOffset()),
+      endOffset = j2sInt(p.endOffset()),
+      startLine = j2sInt(p.startLine()),
+      startColumn = j2sInt(p.startColumn()),
+      endLine = j2sInt(p.endLine()),
+      endColumn = j2sInt(p.endColumn())
     )
   }
 
@@ -45,11 +70,26 @@ object SbtWarningsPlugin extends AutoPlugin {
   }
 
   object Warning {
+    def fromSbt(p: Problem): Warning = {
+      Warning(
+        message = p.message(),
+        position = Pos.fromSbt(p.position())
+      )
+    }
     implicit val instance: JsonFormat[Warning] = {
-      implicit val position: JsonFormat[Pos] = BasicJsonProtocol.caseClass3(Pos.apply, Pos.unapply)(
+      implicit val position: JsonFormat[Pos] = BasicJsonProtocol.caseClass12(Pos.apply, Pos.unapply)(
         "line",
-        "content",
-        "path"
+        "lineContent",
+        "offset",
+        "pointer",
+        "pointerSpace",
+        "sourcePath",
+        "startOffset",
+        "endOffset",
+        "startLine",
+        "startColumn",
+        "endLine",
+        "endColumn"
       )
       caseClass2(Warning.apply, Warning.unapply)(
         "message",
@@ -90,12 +130,12 @@ object SbtWarningsPlugin extends AutoPlugin {
       val problems = analysis.infos.allInfos.values.flatMap(i => i.getReportedProblems ++ i.getUnreportedProblems)
       problems.collect {
         case p if p.severity() == Severity.Warn =>
-          Warning(message = p.message(), position = Pos.fromXsbt(p.position()))
+          Warning.fromSbt(p)
       }.toSeq
     }
   }
 
-  private def dir = "warnings"
+  private[this] def dir = "warnings"
 
   override def buildSettings: Seq[Def.Setting[?]] = Def.settings(
     warningsCurrentFile := {
@@ -122,9 +162,11 @@ object SbtWarningsPlugin extends AutoPlugin {
         case Some(previous) =>
           Def.task[WarningDiff] {
             val current = warningsAll.value
-            val order: Ordering[Warning] = Ordering.by(x => (x.position.path, x.position.line, x.message))
+            val order: Ordering[Warning] = Ordering.by(x => (x.position.sourcePath, x.position.line, x.message))
             def format(warnings: Warnings): Seq[String] = {
-              warnings.sorted(order).flatMap(a => List(a.position.path, a.position.content, a.message))
+              warnings
+                .sorted(order)
+                .flatMap(a => List(a.position.sourcePath.getOrElse(""), a.position.lineContent, a.message))
             }
 
             val result = IO.withTemporaryDirectory { dir =>
