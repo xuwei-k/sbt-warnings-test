@@ -46,7 +46,7 @@ jobs:
     - if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true')
       run: sbt warningsDiff
     - uses: actions/github-script@v6
-      if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true')
+      if: (github.event_name == 'pull_request') && (github.base_ref == 'main') && (steps.download_previous_warnings.outputs.found_artifact == 'true') && (github.event.pull_request.user.login == 'xuwei-k')
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
